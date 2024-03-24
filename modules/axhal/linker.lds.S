@@ -10,7 +10,7 @@ SECTIONS
 
     .text : ALIGN(4K) {
         _stext = .;
-        *(.text.boot)
+        *(.text.entry)
         . = ALIGN(4K);
         *(.text.signal_trampoline)
         . = ALIGN(4K);

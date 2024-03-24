@@ -1,5 +1,5 @@
 //! This module provides the process management API for the operating system.
-
+#![feature(stmt_expr_attributes)]
 #![cfg_attr(not(test), no_std)]
 mod api;
 pub use api::*;

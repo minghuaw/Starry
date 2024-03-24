@@ -1,10 +1,6 @@
+use hal::{ContextArgs, TrapFrame, TrapType};
 #[cfg(feature = "monolithic")]
 use page_table_entry::MappingFlags;
-
-#[cfg(feature = "monolithic")]
-use riscv::register::{sepc, stval};
-
-use riscv::register::scause::{self, Exception as E, Trap};
 
 #[cfg(feature = "monolithic")]
 use crate::trap::handle_page_fault;
@@ -13,7 +9,7 @@ use crate::trap::handle_page_fault;
 use crate::trap::handle_signal;
 
 #[allow(unused)]
-use super::{disable_irqs, TrapFrame};
+use super::disable_irqs;
 
 #[cfg(feature = "monolithic")]
 use super::enable_irqs;
@@ -21,76 +17,65 @@ use super::enable_irqs;
 #[cfg(feature = "monolithic")]
 use crate::trap::handle_syscall;
 
-include_asm_marcos!();
-
-core::arch::global_asm!(
-    include_str!("trap.S"),
-    trapframe_size = const core::mem::size_of::<TrapFrame>(),
-);
-
 fn handle_breakpoint(sepc: &mut usize) {
-    debug!("Exception(Breakpoint) @ {:#x} ", sepc);
-    *sepc += 2
+    // The sepc has been modified in the kernel callback function
+    info!("Exception(Breakpoint) @ {:#x} ", sepc);
 }
 
 #[no_mangle]
 #[allow(unused)]
-fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
-    let scause = scause::read();
+pub fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool, trap_type: TrapType) {
+    let scause = riscv::register::scause::read();
     #[cfg(feature = "monolithic")]
+    // 这里是测例 interrupt 的对应代码，需要记录中断号
     axfs_ramfs::INTERRUPT.lock().record(scause.code());
-    match scause.cause() {
-        Trap::Exception(E::Breakpoint) => handle_breakpoint(&mut tf.sepc),
-        Trap::Interrupt(_) => crate::trap::handle_irq_extern(scause.bits(), from_user),
+    match trap_type {
+        TrapType::Breakpoint => handle_breakpoint(&mut tf.sepc),
+        TrapType::Time(irq_num) => crate::trap::handle_irq_extern(irq_num, from_user),
         #[cfg(feature = "monolithic")]
-        Trap::Exception(E::UserEnvCall) => {
+        TrapType::UserEnvCall => {
             enable_irqs();
-            // jump to next instruction anyway
-            tf.sepc += 4;
             // get system call return value
-            let result = handle_syscall(
-                tf.regs.a7,
-                [
-                    tf.regs.a0, tf.regs.a1, tf.regs.a2, tf.regs.a3, tf.regs.a4, tf.regs.a5,
-                ],
-            );
+            // If it call syscall ok after the handle syscall, then the execve and clone syscall need to add or sub 4 to the sepc for the new task manually.
+            // So it doesn't call tf.syscall_ok() here.
+            tf[ContextArgs::SEPC] += 4;
+            let result = handle_syscall(tf[ContextArgs::SYSCALL], tf.args());
             // cx is changed during sys_exec, so we have to call it again
-            tf.regs.a0 = result as usize;
+            tf[ContextArgs::RET] = result as usize;
         }
         #[cfg(feature = "monolithic")]
-        Trap::Exception(E::InstructionPageFault) => {
-            let addr = stval::read();
+        TrapType::InstructionPageFault(addr) => {
+            info!(
+                "I page fault from kernel, addr: {:#x} sepc:{:#x} from user: {}",
+                addr, tf.sepc, from_user
+            );
             if !from_user {
-                unimplemented!(
-                    "I page fault from kernel, addr: {:X}, sepc: {:X}",
-                    addr,
-                    tf.sepc
-                );
+                unimplemented!("I page fault from kernel");
             }
             handle_page_fault(addr.into(), MappingFlags::USER | MappingFlags::EXECUTE);
         }
 
         #[cfg(feature = "monolithic")]
-        Trap::Exception(E::LoadPageFault) => {
-            let addr = stval::read();
+        TrapType::LoadPageFault(addr) => {
+            info!(
+                "L page fault from kernel, addr: {:#x} sepc:{:#x}",
+                addr, tf.sepc
+            );
             if !from_user {
-                error!("L page fault from kernel, addr: {:#x}", addr);
                 unimplemented!("L page fault from kernel");
             }
             handle_page_fault(addr.into(), MappingFlags::USER | MappingFlags::READ);
         }
 
         #[cfg(feature = "monolithic")]
-        Trap::Exception(E::StorePageFault) => {
+        TrapType::StorePageFault(addr) => {
+            info!(
+                "S page fault from kernel, addr: {:#x} sepc:{:#x}",
+                addr, tf.sepc
+            );
             if !from_user {
-                error!(
-                    "S page fault from kernel, addr: {:#x} sepc:{:X}",
-                    stval::read(),
-                    sepc::read()
-                );
                 unimplemented!("S page fault from kernel");
             }
-            let addr = stval::read();
             handle_page_fault(addr.into(), MappingFlags::USER | MappingFlags::WRITE);
         }
 
@@ -129,10 +114,8 @@ fn riscv_trap_handler(tf: &mut TrapFrame, from_user: bool) {
 /// 2. frame_base: the address of the trap frame which will be pushed into the kernel stack
 pub fn first_into_user(kernel_sp: usize, frame_base: usize) {
     // Make sure that all csr registers are stored before enable the interrupt
-    use crate::arch::flush_tlb;
-
     disable_irqs();
-    flush_tlb(None);
+    super::flush_tlb(None);
 
     let trap_frame_size = core::mem::size_of::<TrapFrame>();
     let kernel_base = kernel_sp - trap_frame_size;
@@ -140,22 +123,23 @@ pub fn first_into_user(kernel_sp: usize, frame_base: usize) {
         core::arch::asm!(
             r"
             mv      sp, {frame_base}
-            .short  0x2432                      // fld fs0,264(sp)
-            .short  0x24d2                      // fld fs1,272(sp)
+            .short  0x2452      # fld  fs0, 272(sp). Warn! it is only used in riscv64
+            .short  0x24f2      # fld  fs1, 280(sp). Warn! it is only used in riscv64
+
             mv      t1, {kernel_base}
-            LDR     t0, sp, 2
-            STR     gp, t1, 2
-            mv      gp, t0
             LDR     t0, sp, 3
-            STR     tp, t1, 3                   // save supervisor tp. Note that it is stored on the kernel stack rather than in sp, in which case the ID of the currently running CPU should be stored
+            STR     gp, t1, 3
+            mv      gp, t0
+            LDR     t0, sp, 4
+            STR     tp, t1, 4                   // save supervisor tp. Note that it is stored on the kernel stack rather than in sp, in which case the ID of the currently running CPU should be stored
             mv      tp, t0                      // tp: now it stores the TLS pointer to the corresponding thread
             csrw    sscratch, {kernel_sp}       // put supervisor sp to scratch
-            LDR     t0, sp, 31
+            LDR     t0, sp, 33
             LDR     t1, sp, 32
             csrw    sepc, t0
             csrw    sstatus, t1
             POP_GENERAL_REGS
-            LDR     sp, sp, 1
+            LDR     sp, sp, 2
             sret
         ",
             frame_base = in(reg) frame_base,

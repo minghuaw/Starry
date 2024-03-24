@@ -472,7 +472,7 @@ impl MapArea {
                         }
                         None => {
                             page_table
-                                .map_fault(vaddr, PageSize::Size4K, self.flags)
+                                .map_fault_region(vaddr, PAGE_SIZE_4K, self.flags)
                                 .unwrap();
                             None
                         }

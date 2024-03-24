@@ -1,7 +1,7 @@
 # Bootstrapping from 32-bit with the Multiboot specification.
 # See https://www.gnu.org/software/grub/manual/multiboot/multiboot.html
 
-.section .text.boot
+.section .text.entry
 .code32
 .global _start
 _start:

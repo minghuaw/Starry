@@ -2,7 +2,11 @@
 extern crate alloc;
 use alloc::sync::Arc;
 use axerrno::{AxError, AxResult};
-use axhal::{arch::TrapFrame, cpu::this_cpu_id, KERNEL_PROCESS_ID};
+use axhal::{
+    arch::{ContextArgs, TrapFrame},
+    cpu::this_cpu_id,
+    KERNEL_PROCESS_ID,
+};
 use axlog::{info, warn};
 use axsignal::{
     action::{SigActionFlags, SignalDefault, SIG_IGN},
@@ -68,11 +72,11 @@ pub fn load_trap_for_signal() -> bool {
             // 考虑当时调用信号处理函数时，sp对应的地址上的内容即是SignalUserContext
             // 此时认为一定通过sig_return调用这个函数
             // 所以此时sp的位置应该是SignalUserContext的位置
-            let sp = (*now_trap_frame).get_sp();
+            let sp = (*now_trap_frame)[ContextArgs::SP];
             *now_trap_frame = old_trap_frame;
             if signal_module.sig_info {
                 let pc = (*(sp as *const SignalUserContext)).get_pc();
-                (*now_trap_frame).set_pc(pc);
+                (*now_trap_frame)[ContextArgs::SEPC] = pc;
             }
         }
         true
@@ -191,7 +195,7 @@ pub fn handle_signals() {
     let trap_frame = unsafe { &mut *(current_task.get_first_trap_frame()) };
 
     // // 新的trap上下文的sp指针位置，由于SIGINFO会存放内容，所以需要开个保护区域
-    let mut sp = trap_frame.get_sp() - USER_SIGNAL_PROTECT;
+    let mut sp = trap_frame[ContextArgs::SP] - USER_SIGNAL_PROTECT;
     let restorer = if let Some(addr) = action.get_storer() {
         addr
     } else {
@@ -203,13 +207,13 @@ pub fn handle_signals() {
         restorer, action.sa_handler
     );
     #[cfg(not(target_arch = "x86_64"))]
-    trap_frame.set_ra(restorer);
+    trap_frame[ContextArgs::RA] = restorer;
 
-    let old_pc = trap_frame.get_pc();
+    let old_pc = trap_frame[ContextArgs::SEPC];
 
-    trap_frame.set_pc(action.sa_handler);
+    trap_frame[ContextArgs::SEPC] = action.sa_handler;
     // 传参
-    trap_frame.set_arg0(sig_num);
+    trap_frame[ContextArgs::ARG0] = sig_num;
     // 若带有SIG_INFO参数，则函数原型为fn(sig: SignalNo, info: &SigInfo, ucontext: &mut UContext)
     if action.sa_flags.contains(SigActionFlags::SA_SIGINFO) {
         // current_task.set_siginfo(true);
@@ -223,7 +227,7 @@ pub fn handle_signals() {
         unsafe {
             *(sp as *mut SigInfo) = info;
         }
-        trap_frame.set_arg1(sp);
+        trap_frame[ContextArgs::ARG1] = sp;
 
         // 接下来存储ucontext
         sp = (sp - core::mem::size_of::<SignalUserContext>()) & !0xf;
@@ -232,7 +236,7 @@ pub fn handle_signals() {
         unsafe {
             *(sp as *mut SignalUserContext) = ucontext;
         }
-        trap_frame.set_arg2(sp);
+        trap_frame[ContextArgs::ARG2] = sp;
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -242,7 +246,8 @@ pub fn handle_signals() {
         *(sp as *mut usize) = restorer;
     }
 
-    trap_frame.set_user_sp(sp);
+    // trap_frame.set_user_sp(sp);
+    trap_frame[ContextArgs::SP] = sp;
     drop(signal_handler);
     drop(signal_modules);
 }
@@ -255,7 +260,7 @@ pub fn signal_return() -> isize {
         // 说明确实存在着信号处理函数的trap上下文
         // 此时内核栈上存储的是调用信号处理前的trap上下文
         let trap_frame = current_task().get_first_trap_frame();
-        unsafe { (*trap_frame).get_ret_code() as isize }
+        unsafe { (*trap_frame)[ContextArgs::RET] as isize }
     } else {
         // 没有进行信号处理，但是调用了sig_return
         // 此时直接返回-1

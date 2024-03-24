@@ -59,7 +59,7 @@ unsafe fn enable_fp() {
 /// The earliest entry point for the primary CPU.
 #[naked]
 #[no_mangle]
-#[link_section = ".text.boot"]
+#[link_section = ".text.entry"]
 unsafe extern "C" fn _start() -> ! {
     // PC = 0x8_0000
     // X0 = dtb
@@ -105,7 +105,7 @@ unsafe extern "C" fn _start() -> ! {
 #[cfg(feature = "smp")]
 #[naked]
 #[no_mangle]
-#[link_section = ".text.boot"]
+#[link_section = ".text.entry"]
 unsafe extern "C" fn _start_secondary() -> ! {
     core::arch::asm!("
         mrs     x19, mpidr_el1

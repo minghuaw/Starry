@@ -19,7 +19,9 @@ members = [
     "crates/driver_net",
     "crates/driver_pci",
     "crates/driver_virtio",
+    "crates/elf_parser",
     "crates/flatten_objects",
+    "crates/hal",
     "crates/handler_table",
     "crates/kernel_guard",
     "crates/lazy_init",
@@ -35,7 +37,6 @@ members = [
     "crates/spinlock",
     "crates/timer_list",
     "crates/tuple_for_each",
-    "crates/elf_parser",
 
     "modules/axalloc",
     "modules/axconfig",

@@ -42,7 +42,7 @@ What happens when "make A=apps/net/httpserver ARCH=aarch64 LOG=info NET=y SMP=1 
     ```rust
     #[naked]
     #[no_mangle]
-    #[link_section = ".text.boot"]
+    #[link_section = ".text.entry"]
     unsafe extern "C" fn _start() -> ! {
         extern "C" {
             fn rust_main();

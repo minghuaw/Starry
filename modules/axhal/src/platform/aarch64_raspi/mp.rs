@@ -7,7 +7,7 @@ extern "C" {
 }
 
 #[naked]
-#[link_section = ".text.boot"]
+#[link_section = ".text.entry"]
 unsafe extern "C" fn modify_stack_and_start() {
     core::arch::asm!("
         ldr     x21, ={secondary_boot_stack}    // the secondary CPU hasn't set the TTBR1

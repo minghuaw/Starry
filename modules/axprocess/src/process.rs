@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use alloc::{collections::BTreeMap, string::String};
 use axerrno::{AxError, AxResult};
 use axfs::api::{FileIO, OpenFlags};
-use axhal::arch::{write_page_table_root0, TrapFrame};
+use axhal::arch::{get_sigreturn, write_page_table_root0, ContextArgs, TrapFrame};
 use axhal::mem::{phys_to_virt, VirtAddr};
 
 use axhal::KERNEL_PROCESS_ID;
@@ -30,11 +30,6 @@ pub static TID2TASK: Mutex<BTreeMap<u64, AxTaskRef>> = Mutex::new(BTreeMap::new(
 /// Map from process id to arc pointer of process
 pub static PID2PC: Mutex<BTreeMap<u64, Arc<Process>>> = Mutex::new(BTreeMap::new());
 const FD_LIMIT_ORIGIN: usize = 1025;
-
-#[cfg(feature = "signal")]
-extern "C" {
-    fn start_signal_trampoline();
-}
 
 /// The process control block
 pub struct Process {
@@ -204,7 +199,7 @@ impl Process {
             use axhal::paging::MappingFlags;
             // 生成信号跳板
             let signal_trampoline_vaddr: VirtAddr = (axconfig::SIGNAL_TRAMPOLINE).into();
-            let signal_trampoline_paddr = virt_to_phys((start_signal_trampoline as usize).into());
+            let signal_trampoline_paddr = virt_to_phys(get_sigreturn().into());
             memory_set.map_page_without_alloc(
                 signal_trampoline_vaddr,
                 signal_trampoline_paddr,
@@ -218,8 +213,6 @@ impl Process {
         if page_table_token != 0 {
             unsafe {
                 write_page_table_root0(page_table_token.into());
-                #[cfg(target_arch = "riscv64")]
-                riscv::register::sstatus::set_sum();
             };
         }
 
@@ -410,7 +403,7 @@ impl Process {
 
             // 生成信号跳板
             let signal_trampoline_vaddr: VirtAddr = (axconfig::SIGNAL_TRAMPOLINE).into();
-            let signal_trampoline_paddr = virt_to_phys((start_signal_trampoline as usize).into());
+            let signal_trampoline_paddr = virt_to_phys(get_sigreturn().into());
             let mut memory_set = self.memory_set.lock();
             if memory_set.query(signal_trampoline_vaddr).is_err() {
                 let _ = memory_set.map_page_without_alloc(
@@ -461,8 +454,7 @@ impl Process {
                 use axhal::paging::MappingFlags;
                 // 生成信号跳板
                 let signal_trampoline_vaddr: VirtAddr = (axconfig::SIGNAL_TRAMPOLINE).into();
-                let signal_trampoline_paddr =
-                    virt_to_phys((start_signal_trampoline as usize).into());
+                let signal_trampoline_paddr = virt_to_phys(get_sigreturn().into());
                 memory_set.lock().map_page_without_alloc(
                     signal_trampoline_vaddr,
                     signal_trampoline_paddr,
@@ -653,10 +645,10 @@ impl Process {
         let mut trap_frame = unsafe { *(current_task.get_first_trap_frame()) };
         // drop(current_task);
         // 新开的进程/线程返回值为0
-        trap_frame.set_ret_code(0);
+        trap_frame[ContextArgs::RET] = 0;
         if flags.contains(CloneFlags::CLONE_SETTLS) {
             #[cfg(not(target_arch = "x86_64"))]
-            trap_frame.set_tls(tls);
+            trap_frame[ContextArgs::TLS] = tls;
             #[cfg(target_arch = "x86_64")]
             unsafe {
                 new_task.set_tls_force(tls);
@@ -668,11 +660,7 @@ impl Process {
         // 若没有给定用户栈，则使用当前用户栈
         // 没有给定用户栈的时候，只能是共享了地址空间，且原先调用clone的有用户栈，此时已经在之前的trap clone时复制了
         if let Some(stack) = stack {
-            trap_frame.set_user_sp(stack);
-            // info!(
-            //     "New user stack: sepc:{:X}, stack:{:X}",
-            //     trap_frame.sepc, trap_frame.regs.sp
-            // );
+            trap_frame[ContextArgs::SP] = stack;
         }
         new_task.set_trap_context(trap_frame);
         new_task.set_trap_in_kernel_stack();

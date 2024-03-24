@@ -50,6 +50,10 @@ impl PagingIf for PagingIfImpl {
     fn phys_to_virt(paddr: PhysAddr) -> VirtAddr {
         phys_to_virt(paddr)
     }
+
+    fn flush_tlb(vaddr: Option<VirtAddr>) {
+        crate::arch::flush_tlb(vaddr)
+    }
 }
 
 cfg_if::cfg_if! {

@@ -106,7 +106,7 @@ fn is_init_ok() -> bool {
 /// In multi-core environment, this function is called on the primary CPU,
 /// and the secondary CPUs call [`rust_main_secondary`].
 #[cfg_attr(not(test), no_mangle)]
-pub extern "C" fn rust_main(cpu_id: usize, dtb: usize) -> ! {
+pub extern "C" fn rust_main(cpu_id: usize) -> ! {
     ax_println!("{}", LOGO);
     ax_println!(
         "\
@@ -125,10 +125,8 @@ pub extern "C" fn rust_main(cpu_id: usize, dtb: usize) -> ! {
         option_env!("AX_LOG").unwrap_or(""),
     );
 
-    axlog::init();
-    axlog::set_max_level(option_env!("AX_LOG").unwrap_or("")); // no effect if set `log-level-*` features
-    info!("Logging is enabled.");
-    info!("Primary CPU {} started, dtb = {:#x}.", cpu_id, dtb);
+    info!("Primary CPU {} started.", cpu_id);
+    axhal::cpu::init_primary(cpu_id);
     info!("Platform name {}.", axhal::platform_name());
 
     info!("Found physcial memory regions:");
@@ -142,8 +140,8 @@ pub extern "C" fn rust_main(cpu_id: usize, dtb: usize) -> ! {
         );
     }
 
-    #[cfg(feature = "alloc")]
-    init_allocator();
+    // #[cfg(feature = "alloc")]
+    // init_allocator();
 
     #[cfg(feature = "paging")]
     {
@@ -325,4 +323,35 @@ fn init_tls() {
     let main_tls = axhal::tls::TlsArea::alloc();
     unsafe { axhal::arch::write_thread_pointer(main_tls.tls_ptr() as usize) };
     core::mem::forget(main_tls);
+}
+
+struct ArchInterfaceImpl;
+
+#[crate_interface::impl_interface]
+impl hal::ArchInterface for ArchInterfaceImpl {
+    fn init_logging() {
+        axlog::init();
+        axlog::set_max_level(option_env!("AX_LOG").unwrap_or("")); // no effect if set `log-level-*` features
+        info!("Logging is enabled.");
+    }
+
+    fn main(hartid: usize) {
+        rust_main(hartid)
+    }
+
+    fn kernel_interrupt(ctx: &mut hal::TrapFrame, from_user: bool, trap_type: hal::TrapType) {
+        axhal::arch::trap_handler(ctx, from_user, trap_type)
+    }
+
+    fn add_memory_region(start: usize, end: usize) {
+        axalloc::global_add_memory(start, end - start).unwrap()
+    }
+
+    fn prepare_drivers() {}
+
+    fn try_to_add_device(_fdt_node: &hal::FdtNode) {}
+
+    fn init_allocator() {
+        init_allocator()
+    }
 }

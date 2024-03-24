@@ -497,7 +497,7 @@ impl TaskInner {
 
             #[cfg(feature = "monolithic")]
             // 初始化的trap上下文
-            trap_frame: UnsafeCell::new(TrapFrame::default()),
+            trap_frame: UnsafeCell::new(TrapFrame::new()),
 
             #[cfg(feature = "monolithic")]
             page_table_token: 0,

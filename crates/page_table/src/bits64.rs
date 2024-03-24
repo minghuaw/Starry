@@ -88,11 +88,11 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
     ) -> PagingResult {
         let entry = self.get_entry_mut_or_create(vaddr, page_size)?;
 
-        // FIXME: return already mapped if it was unused?
         if entry.is_unused() {
-            return Err(PagingError::AlreadyMapped);
+            return Err(PagingError::NotMapped);
         }
         *entry = GenericPTE::new_page(target.align_down(page_size), flags, page_size.is_huge());
+        IF::flush_tlb(Some(vaddr));
         Ok(())
     }
 
@@ -100,7 +100,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
     ///
     /// Returns [`Err(PagingError::NotMapped)`](PagingError::NotMapped) if the
     /// mapping is not present.
-    pub fn unmap(&mut self, vaddr: VirtAddr) -> PagingResult<(PhysAddr, PageSize)> {
+    fn unmap(&mut self, vaddr: VirtAddr) -> PagingResult<(PhysAddr, PageSize)> {
         let (entry, size) = self.get_entry_mut(vaddr)?;
         if entry.is_unused() {
             return Err(PagingError::NotMapped);
@@ -111,7 +111,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
     }
 
     /// Maps a fault page starts with `vaddr`.
-    pub fn map_fault(
+    fn map_fault(
         &mut self,
         vaddr: VirtAddr,
         page_size: PageSize,
@@ -148,7 +148,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
     ///
     /// Returns [`Err(PagingError::NotMapped)`](PagingError::NotMapped) if the
     /// mapping is not present.
-    pub fn update(
+    fn update(
         &mut self,
         vaddr: VirtAddr,
         paddr: Option<PhysAddr>,
@@ -225,6 +225,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
                     vaddr, page_size, paddr, e
                 )
             })?;
+            IF::flush_tlb(Some(vaddr));
             vaddr += page_size as usize;
             paddr += page_size as usize;
             size -= page_size as usize;
@@ -262,6 +263,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
                         e
                     )
                 })?;
+            IF::flush_tlb(Some(vaddr));
             vaddr += PageSize::Size4K as usize;
             size -= PageSize::Size4K as usize;
         }
@@ -288,6 +290,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
                 .inspect_err(|e| error!("failed to unmap page: {:#x?}, {:?}", vaddr, e))?;
             assert!(vaddr.is_aligned(page_size));
             assert!(page_size as usize <= size);
+            IF::flush_tlb(Some(vaddr));
             vaddr += page_size as usize;
             size -= page_size as usize;
         }
@@ -305,6 +308,7 @@ impl<M: PagingMetaData, PTE: GenericPTE, IF: PagingIf> PageTable64<M, PTE, IF> {
         let end = vaddr + size;
         while vaddr < end {
             let page_size = self.update(vaddr, None, Some(flags))?;
+            IF::flush_tlb(Some(vaddr));
             vaddr += page_size as usize;
         }
         Ok(())

@@ -3,10 +3,13 @@ mod macros;
 
 mod context;
 mod trap;
+pub use trap::riscv_trap_handler as trap_handler;
+
 #[cfg(feature = "monolithic")]
 pub use trap::first_into_user;
 
-pub use self::context::{GeneralRegisters, TaskContext, TrapFrame};
+pub use self::context::TaskContext;
+
 use memory_addr::{PhysAddr, VirtAddr};
 use riscv::asm;
 use riscv::register::{satp, sstatus, stvec};
@@ -109,8 +112,3 @@ pub fn read_thread_pointer() -> usize {
 pub unsafe fn write_thread_pointer(tp: usize) {
     core::arch::asm!("mv tp, {}", in(reg) tp)
 }
-
-include_asm_marcos!();
-
-#[cfg(feature = "signal")]
-core::arch::global_asm!(include_str!("signal.S"));

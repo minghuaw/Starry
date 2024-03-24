@@ -74,9 +74,11 @@ pub unsafe fn set_current_task_ptr<T>(ptr: *const T) {
 }
 
 #[allow(dead_code)]
-pub(crate) fn init_primary(cpu_id: usize) {
-    percpu::init(axconfig::SMP);
-    percpu::set_local_thread_pointer(cpu_id);
+/// To init the primary CPU ID and IS_BSP.
+pub fn init_primary(cpu_id: usize) {
+    // It has been set in hal crate.
+    // percpu::init(axconfig::SMP);
+    // percpu::set_local_thread_pointer(cpu_id);
     unsafe {
         CPU_ID.write_current_raw(cpu_id);
         IS_BSP.write_current_raw(true);

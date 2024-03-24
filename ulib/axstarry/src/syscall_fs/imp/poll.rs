@@ -3,7 +3,7 @@ use axhal::{mem::VirtAddr, time::current_ticks};
 use axprocess::{current_process, yield_now_task};
 use bitflags::bitflags;
 extern crate alloc;
-use crate::{SyscallError, SyscallResult, TimeSecs, TimeVal};
+use crate::{SyscallError, SyscallResult, TimeSecs};
 use alloc::{sync::Arc, vec::Vec};
 bitflags! {
     /// 在文件上等待或者发生过的事件
@@ -214,7 +214,10 @@ pub fn syscall_ppoll(args: [usize; 6]) -> SyscallResult {
 /// * `ufds` - *mut PollFd
 /// * `nfds` - usize
 /// * `timeout_msecs` - usize
+#[cfg(feature = "x86_64")]
 pub fn syscall_poll(args: [usize; 6]) -> SyscallResult {
+    use crate::TimeVal;
+
     let ufds = args[0] as *mut PollFd;
     let nfds = args[1];
     let timeout_msecs = args[2];
@@ -302,6 +305,7 @@ fn init_fd_set(addr: *mut usize, len: usize) -> Result<PpollFdSet, SyscallError>
 /// * `writefds` - *mut usize
 /// * `exceptfds` - *mut usize
 /// * `timeout` - *const TimeSecs
+#[cfg(feature = "x86_64")]
 pub fn syscall_select(mut args: [usize; 6]) -> SyscallResult {
     args[5] = 0;
     syscall_pselect6(args)

@@ -94,6 +94,8 @@ pub trait PagingIf: Sized {
     ///
     /// Used to access the physical memory directly in page table implementation.
     fn phys_to_virt(paddr: PhysAddr) -> VirtAddr;
+    /// To update the TLB after the page table is modified.
+    fn flush_tlb(vaddr: Option<VirtAddr>);
 }
 
 /// The page sizes supported by the hardware page table.

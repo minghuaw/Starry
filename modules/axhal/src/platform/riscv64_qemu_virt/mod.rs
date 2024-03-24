@@ -12,22 +12,23 @@ pub mod irq;
 pub mod mp;
 
 extern "C" {
-    fn trap_vector_base();
-    fn rust_main(cpu_id: usize, dtb: usize);
+    // fn rust_main(cpu_id: usize, dtb: usize);
     #[cfg(feature = "smp")]
     fn rust_main_secondary(cpu_id: usize);
 }
 
-unsafe extern "C" fn rust_entry(cpu_id: usize, dtb: usize) {
-    crate::mem::clear_bss();
-    crate::cpu::init_primary(cpu_id);
-    crate::arch::set_trap_vector_base(trap_vector_base as usize);
-    rust_main(cpu_id, dtb);
-}
+// unsafe extern "C" fn rust_entry(cpu_id: usize, dtb: usize) {
+//     crate::mem::clear_bss();
+//     crate::cpu::init_primary(cpu_id);
+//     // It has been initialized in the hal crates.
+//     // hal::init_interrupt();
+//     rust_main(cpu_id, dtb);
+// }
 
+// TODO: It needed to be moved to the hal crate
 #[cfg(feature = "smp")]
 unsafe extern "C" fn rust_entry_secondary(cpu_id: usize) {
-    crate::arch::set_trap_vector_base(trap_vector_base as usize);
+    hal::init_interrupt();
     crate::cpu::init_secondary(cpu_id);
     rust_main_secondary(cpu_id);
 }
