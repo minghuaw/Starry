@@ -83,6 +83,9 @@ pub struct Process {
 
     /// 该进程可执行文件所在的路径
     pub file_path: Mutex<String>,
+
+    /// CLONE_VFORK 
+    pub vfork_done: Option<Completion>,
 }
 
 impl Process {
@@ -192,6 +195,7 @@ impl Process {
             robust_list: Mutex::new(BTreeMap::new()),
             blocked_by_vfork: Mutex::new(false),
             file_path: Mutex::new(String::new()),
+            vfork_done: None,
         }
     }
     /// 根据给定参数创建一个新的进程，作为应用程序初始进程
@@ -600,6 +604,7 @@ impl Process {
         // 若创建的是线程，则返回线程的id
         let return_id: u64;
         // 决定是创建线程还是进程
+        let mut vfork_done = None;
         if flags.contains(CloneFlags::CLONE_THREAD) {
             // // 若创建的是线程，那么不用新建进程
             // info!("task len: {}", inner.tasks.len());
@@ -621,13 +626,19 @@ impl Process {
         } else {
             // 若创建的是进程，那么需要新建进程
             // 由于地址空间是复制的，所以堆底的地址也一定相同
-            let new_process = Arc::new(Process::new(
+            let mut new_process = Process::new(
                 process_id,
                 parent_id,
                 new_memory_set,
                 self.get_heap_bottom(),
                 self.fd_manager.fd_table.lock().clone(),
-            ));
+            );
+            
+            if flags.contains(CloneFlags::CLONE_VFORK) {
+                vfork_done = Some(Completion::default());
+                new_process.set_vfork_done(vfork_done.clone());
+            }
+            let new_process = Arc::new(new_process);
             // 记录该进程，防止被回收
             PID2PC.lock().insert(process_id, Arc::clone(&new_process));
             new_process.tasks.lock().push(Arc::clone(&new_task));
@@ -680,6 +691,10 @@ impl Process {
         // 判断是否为VFORK
         if flags.contains(CloneFlags::CLONE_VFORK) {
             self.set_vfork_block(true);
+            if let Some(vfork_done) = vfork_done {
+                error!("wait for completition");
+                vfork_done.wait_for_completion();
+            }
             yield_now_task();
         }
         Ok(return_id)
@@ -740,5 +755,73 @@ impl Process {
             .unwrap()
             .signal_set
             .find_signal()
+    }
+}
+
+/// Method for CLONE_VFORK
+impl Process {
+    pub fn set_vfork_done(&mut self, value: Option<Completion>) {
+        self.vfork_done = value;
+    }
+
+    pub fn complete_vfork_done_if_present(&self) {
+        error!("complete_vfork_done_if_present");
+        if let Some(completion) = &self.vfork_done {
+            completion.complete();
+        }
+    }
+}
+
+impl core::ops::Drop for Process {
+    fn drop(&mut self) {
+        error!("Dropping process")
+    }
+}
+
+use core::time::Duration;
+
+#[derive(Clone)]
+struct Completion {
+   inner: Arc<AtomicBool> 
+}
+
+impl Default for Completion {
+    fn default() -> Self {
+        Self {
+            inner: Arc::new(AtomicBool::new(false))
+        }
+    }
+}
+
+impl Completion {
+    const DEFAULT_SLEEP_MILLIS: u64 = 1;
+
+    pub fn complete(&self) {
+        error!("Completion::complete");
+        self.inner.store(true, Ordering::Release);
+    }
+    
+    pub fn wait_for_completion(&self) {
+        // TODO: for testing only, remove later
+        let mut count = 0;
+        loop {
+            let val = self.inner.load(Ordering::Acquire);
+            match val {
+                true => {
+                    // Signal set, stop waiting
+                    break
+                }
+                false => {
+                    // Sleep
+                    crate::sleep_now_task(Duration::from_millis(Self::DEFAULT_SLEEP_MILLIS))
+                }
+            }
+
+            if count > 1000 * 100 {
+                break
+            }
+        }
+
+        error!("waiting completed")
     }
 }

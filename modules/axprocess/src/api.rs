@@ -13,7 +13,7 @@ use axerrno::{AxError, AxResult};
 use axhal::mem::VirtAddr;
 use axhal::paging::MappingFlags;
 use axhal::KERNEL_PROCESS_ID;
-use axlog::{debug, info};
+use axlog::{debug, info, error};
 use axmem::MemorySet;
 #[cfg(feature = "signal")]
 use axsignal::signal_no::SignalNo;
@@ -64,7 +64,10 @@ pub fn exit_current_task(exit_code: i32) -> ! {
 
     let curr_id = current_task.id().as_u64();
 
-    info!("exit task id {} with code _{}_", curr_id, exit_code);
+    error!("exit task id {} with code _{}_", curr_id, exit_code);
+
+    process.complete_vfork_done_if_present();
+    
     clear_wait(
         if current_task.is_leader() {
             process.pid()

@@ -711,7 +711,7 @@ impl fmt::Debug for TaskInner {
 
 impl Drop for TaskInner {
     fn drop(&mut self) {
-        debug!("task drop: {}", self.id_name());
+        error!("task drop: {}", self.id_name());
     }
 }
 
