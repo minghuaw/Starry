@@ -102,5 +102,17 @@ pub(crate) fn sysfs() -> VfsResult<Arc<fs::ramfs::RamFileSystem>> {
         .lookup("devices/system/clocksource/clocksource0/current_clocksource")?;
     file_cc.write_at(0, b"tsc\n")?;
 
+    // Create /sys/devices/system/cpu/online
+    // TODO: use assembly instruction to find the number of cores? (ie. CPUID for x86)
+    let smp = option_env!("AX_SMP");
+    if let Some(smp) = smp {
+        sys_root.create("devices/system/cpu", VfsNodeType::Dir)?;
+        sys_root.create("devices/system/cpu/online", VfsNodeType::File)?;
+        let cpu_online_file = sys_root.clone().lookup("devices/system/cpu/online")?;
+        cpu_online_file.write_at(0, b"0-")?;
+        cpu_online_file.write_at(2, smp.as_bytes())?;
+    }
+
+
     Ok(Arc::new(sysfs))
 }
