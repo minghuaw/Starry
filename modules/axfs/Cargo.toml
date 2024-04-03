@@ -38,6 +38,8 @@ axsync = { path = "../axsync" }
 crate_interface = { path = "../../crates/crate_interface", optional = true }
 bitflags = "2.0"
 
+axhal = { path = "../axhal" }
+
 [dependencies.fatfs]
 git = "https://github.com/rafalh/rust-fatfs"
 rev = "a3a834e"

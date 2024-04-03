@@ -91,3 +91,12 @@ pub(crate) fn init_secondary(cpu_id: usize) {
         IS_BSP.write_current_raw(false);
     }
 }
+
+#[allow(dead_code)]
+pub fn max_logical_processor_ids() -> Option<u8> {
+    raw_cpuid::CpuId::new().get_feature_info()
+        .map(|finfo| match finfo.max_logical_processor_ids() {
+            0 => 1, // FIXME: SMP=1 gives a 0 on QEMU somehow. Other values are fine
+            n @ _ => n
+        })
+}
